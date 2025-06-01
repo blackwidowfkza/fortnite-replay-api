@@ -1,43 +1,25 @@
-// index.js
-
-const express     = require('express');
-const multer      = require('multer');
-const fs          = require('fs');
-const path        = require('path');
+const express = require('express');
+const multer = require('multer');
+const fs = require('fs').promises; // Using promise-based FS
+const path = require('path');
 const parseReplay = require('fortnite-replay-parser');
 
 const app = express();
-const upload = multer({ dest: 'uploads/' });
-
-// Serve a one‐page HTML form to upload .replay
-app.get('/', (req, res) => {
-  res.send(`
-    <!DOCTYPE html>
-    <html lang="en">
-    <head>
-      <meta charset="UTF-8" />
-      <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-      <title>Upload Fortnite .replay</title>
-      <style>
-        body { font-family: Arial, sans-serif; padding: 2rem; }
-        h1 { margin-bottom: 1rem; }
-        label, input, button { font-size: 1rem; }
-      </style>
-    </head>
-    <body>
-      <h1>Upload a Fortnite Replay File</h1>
-      <form action="/upload" method="post" enctype="multipart/form-data">
-        <label for="replayFile">Select a <strong>.replay</strong> file:</label><br/>
-        <input type="file" id="replayFile" name="replayFile" accept=".replay" required/><br/><br/>
-        <button type="submit">Upload & Parse</button>
-      </form>
-      <p>After you upload, you’ll see the parsed header‐only JSON or an error message.</p>
-    </body>
-    </html>
-  `);
+const upload = multer({ 
+  dest: 'uploads/',
+  limits: {
+    fileSize: 50 * 1024 * 1024 // Limit to 50MB
+  },
+  fileFilter: (req, file, cb) => {
+    if (path.extname(file.originalname).toLowerCase() !== '.replay') {
+      return cb(new Error('Only .replay files are allowed'));
+    }
+    cb(null, true);
+  }
 });
 
-// Handle the upload & parse with parseLevel: 1 (header‐only)
+// ... (keep your HTML route the same) ...
+
 app.post('/upload', upload.single('replayFile'), async (req, res) => {
   if (!req.file) {
     return res.status(400).json({ error: 'No replay file provided.' });
@@ -46,32 +28,49 @@ app.post('/upload', upload.single('replayFile'), async (req, res) => {
   const replayPath = path.join(__dirname, req.file.path);
 
   try {
-    const replayBuffer = fs.readFileSync(replayPath);
+    // Read file asynchronously
+    const replayBuffer = await fs.readFile(replayPath);
+    
+    // More robust parsing configuration
+    const config = {
+      parseLevel: 1, // Header only
+      debug: false,
+      skipChunkErrors: true, // Skip problematic chunks
+      failOnChunkError: false // Don't fail entire parse on chunk errors
+    };
 
-    // parseLevel: 1 → header & metadata only, no deep playback packets
-    const config = { parseLevel: 1, debug: false };
-    const parsedData = await parseReplay(replayBuffer, config);
+    // Add timeout for parsing
+    const parsedData = await Promise.race([
+      parseReplay(replayBuffer, config),
+      new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Parsing timeout')), 10000)
+      )
+    ]);
 
-    fs.unlinkSync(replayPath);
-    return res.json(parsedData);
+    await fs.unlink(replayPath);
+    return res.json({
+      success: true,
+      data: parsedData
+    });
 
   } catch (err) {
-    try { fs.unlinkSync(replayPath); } catch (_){/*ignore*/}
+    // Clean up file
+    try { await fs.unlink(replayPath); } catch (_) { /* ignore */ }
 
     console.error('Error parsing replay:', err);
+    
+    // More detailed error response
     return res.status(500).json({
-      error: 'Failed to parse replay file.',
-      message: err.message
+      error: 'Failed to parse replay file',
+      message: err.message,
+      stack: process.env.NODE_ENV === 'development' ? err.stack : undefined,
+      suggestions: [
+        'Try a different replay file',
+        'The replay might be from an unsupported Fortnite version',
+        'The file might be corrupted'
+      ]
     });
   }
 });
 
-// Health‐check endpoint
-app.get('/health', (req, res) => {
-  res.send('OK');
-});
-
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`Server listening on port ${PORT}`);
-});
+// ... (keep health check and server start the same) ...
