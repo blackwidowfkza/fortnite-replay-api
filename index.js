@@ -1,25 +1,33 @@
 const express = require('express');
 const multer = require('multer');
-const fs = require('fs').promises; // Using promise-based FS
+const fs = require('fs').promises;
 const path = require('path');
 const parseReplay = require('fortnite-replay-parser');
 
+// Initialize Express app
 const app = express();
-const upload = multer({ 
+
+// Configure multer for file uploads
+const upload = multer({
   dest: 'uploads/',
   limits: {
-    fileSize: 50 * 1024 * 1024 // Limit to 50MB
+    fileSize: 50 * 1024 * 1024 // 50MB limit
   },
   fileFilter: (req, file, cb) => {
-    if (path.extname(file.originalname).toLowerCase() !== '.replay') {
-      return cb(new Error('Only .replay files are allowed'));
+    if (path.extname(file.originalname).toLowerCase() === '.replay') {
+      cb(null, true);
+    } else {
+      cb(new Error('Only .replay files are allowed'), false);
     }
-    cb(null, true);
   }
 });
 
-// ... (keep your HTML route the same) ...
+// HTML upload form (unchanged from your original)
+app.get('/', (req, res) => {
+  res.send(/* your HTML form */);
+});
 
+// Upload and parse endpoint
 app.post('/upload', upload.single('replayFile'), async (req, res) => {
   if (!req.file) {
     return res.status(400).json({ error: 'No replay file provided.' });
@@ -28,49 +36,62 @@ app.post('/upload', upload.single('replayFile'), async (req, res) => {
   const replayPath = path.join(__dirname, req.file.path);
 
   try {
-    // Read file asynchronously
     const replayBuffer = await fs.readFile(replayPath);
-    
-    // More robust parsing configuration
-    const config = {
-      parseLevel: 1, // Header only
+    const config = { 
+      parseLevel: 1,
       debug: false,
-      skipChunkErrors: true, // Skip problematic chunks
-      failOnChunkError: false // Don't fail entire parse on chunk errors
+      skipChunkErrors: true
     };
-
-    // Add timeout for parsing
-    const parsedData = await Promise.race([
-      parseReplay(replayBuffer, config),
-      new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Parsing timeout')), 10000)
-      )
-    ]);
-
+    
+    const parsedData = await parseReplay(replayBuffer, config);
     await fs.unlink(replayPath);
+    
     return res.json({
       success: true,
       data: parsedData
     });
-
   } catch (err) {
-    // Clean up file
-    try { await fs.unlink(replayPath); } catch (_) { /* ignore */ }
-
-    console.error('Error parsing replay:', err);
+    try { await fs.unlink(replayPath); } catch (_) {}
     
-    // More detailed error response
+    console.error('Replay parsing error:', err);
     return res.status(500).json({
-      error: 'Failed to parse replay file',
+      error: 'Replay parsing failed',
       message: err.message,
-      stack: process.env.NODE_ENV === 'development' ? err.stack : undefined,
-      suggestions: [
-        'Try a different replay file',
-        'The replay might be from an unsupported Fortnite version',
-        'The file might be corrupted'
-      ]
+      details: process.env.NODE_ENV === 'development' ? err.stack : undefined
     });
   }
 });
 
-// ... (keep health check and server start the same) ...
+// Health check endpoint
+app.get('/health', (req, res) => {
+  res.status(200).send('OK');
+});
+
+// Get port from environment or default
+const PORT = process.env.PORT || 3000;
+
+// Start server with proper error handling
+const server = app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+  console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+});
+
+// Handle server errors
+server.on('error', (err) => {
+  console.error('Server error:', err);
+  if (err.code === 'EADDRINUSE') {
+    console.error(`Port ${PORT} is already in use`);
+    process.exit(1);
+  }
+});
+
+// Handle unhandled promise rejections
+process.on('unhandledRejection', (err) => {
+  console.error('Unhandled rejection:', err);
+});
+
+// Handle uncaught exceptions
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught exception:', err);
+  process.exit(1);
+});
