@@ -13,16 +13,16 @@ const app = express();
 const upload = multer({
   dest: 'uploads/',
   limits: {
-    fileSize: 50 * 1024 * 1024, // 50 MB max
+    fileSize: 50 * 1024 * 1024, // 50 MB
   },
 });
 
-// Serve any static assets under /public
+// Serve static assets (if any) from /public
 app.use(express.static('public'));
 
 // ----------------------
 // GET “/”
-// Simple HTML form to upload a .replay
+// Simple upload form
 // ----------------------
 app.get('/', (req, res) => {
   res.send(`
@@ -114,10 +114,8 @@ app.get('/', (req, res) => {
           resultEl.style.display = 'none';
 
           try {
-            // By default, this will do a header-only parse.
-            // To force a full-chunk parse, append ?full=true to the URL:
-            // fetch('/upload?full=true', { ... })
-            const response = await fetch('/upload', {
+            // Default: header-only parse. To force full-chunk parse, use `/upload?full=true`.
+            const response = await fetch('/upload' + (location.search || ''), {
               method: 'POST',
               body: formData,
             });
@@ -125,8 +123,8 @@ app.get('/', (req, res) => {
               const body = await response.json();
               throw new Error(body.error || 'Failed to parse replay');
             }
-            const result = await response.json();
-            dataEl.textContent = JSON.stringify(result, null, 2);
+            const json = await response.json();
+            dataEl.textContent = JSON.stringify(json, null, 2);
             resultEl.style.display = 'block';
           } catch (err) {
             errorEl.textContent = err.message;
@@ -140,10 +138,9 @@ app.get('/', (req, res) => {
 
 // ----------------------
 // POST “/upload”
-//  • Accepts a single .replay upload.
-//  • First tries parseLevel: 0 (“light” header parse).
-//  • If that fails, manually read magic + version.
-//  • If ?full=true is set, then attempt parseLevel: 1 (whole‐chunk) with a fallback.
+//  • Always extract magic+version from first 9 bytes.
+//  • Attempt parseLevel: 0; if it fails, keep minimal header.
+//  • If ?full=true, attempt parseLevel: 1 with fallback.
 // ----------------------
 app.post('/upload', upload.single('replayFile'), async (req, res) => {
   if (!req.file) {
@@ -160,64 +157,65 @@ app.post('/upload', upload.single('replayFile'), async (req, res) => {
   }
 
   try {
-    // 2) Read entire file into a Buffer
+    // 2) Read entire file into Buffer
     const replayBuffer = await fs.readFile(replayPath);
 
     // 3) Minimal size check
-    if (replayBuffer.length < 100) {
-      throw new Error('File is too small to be a valid replay.');
+    if (replayBuffer.length < 9) {
+      throw new Error('File is too small to be a valid .replay.');
     }
 
-    // 4) Try a “light” parse (parseLevel: 0)
-    let headerData;
+    // 4) Manually extract magic + version from first 9 bytes
+    const magic = replayBuffer.slice(0, 5).toString('utf8');
+    const version = replayBuffer.readUInt32LE(5);
+    const minimalHeader = {
+      magic,
+      version,
+      note: 'Minimal header extracted from first 9 bytes.',
+    };
+
+    // 5) If magic isn’t “ubulk”, we know immediately it’s not a Fortnite .replay
+    if (magic !== 'ubulk') {
+      // Cleanup
+      await fs.unlink(replayPath).catch(() => {});
+      return res.status(400).json({ error: 'Not a valid .replay (magic mismatch).' });
+    }
+
+    // 6) Attempt a “light” parse (parseLevel: 0). If it succeeds, replace minimalHeader.
+    let headerData = minimalHeader;
     try {
-      headerData = await parseReplay(replayBuffer, {
+      const result0 = await parseReplay(replayBuffer, {
         parseLevel: 0, // header/metadata only
         debug: false,
       });
+      headerData = result0; // this contains full header metadata
     } catch (lightErr) {
-      console.warn('Light parse failed:', lightErr);
-
-      // FALLBACK: Manually read the first 9 bytes:
-      //   • Bytes [0..4) == ASCII "ubulk"
-      //   • Bytes [5..9) == version (UInt32LE)
-      const magic = replayBuffer.slice(0, 5).toString('utf8');
-      if (magic !== 'ubulk') {
-        throw new Error('Not a valid .replay (magic mismatch).');
-      }
-      // read version as little-endian uint32 starting at byte offset 5
-      const version = replayBuffer.readUInt32LE(5);
-      headerData = {
-        magic,
-        version,
-        note: 'Header extracted manually; full parser failed.',
-      };
+      console.warn('parseLevel:0 (light) failed—falling back to minimal header:', lightErr);
+      // Keep headerData = minimalHeader
     }
 
-    // 5) By default, return just the header. To get full-chunk parsing, client must pass “?full=true”
+    // 7) If user did NOT ask for full parse, return headerData now
     const wantFullParse = req.query.full === 'true';
-
     if (!wantFullParse) {
       await fs.unlink(replayPath).catch(() => {});
       return res.json({
         success: true,
-        type: 'HEADER_MINIMAL',
+        type: headerData.numChunks != null ? 'HEADER_FULL' : 'HEADER_MINIMAL',
         header: headerData,
         message:
-          'Header parsed (either fully or minimally). To attempt a full chunk parse, re-upload with “?full=true”.',
+          'Header parsed. To attempt a full/chunk parse, re-upload with “?full=true”.',
       });
     }
 
-    // 6) If we reach here, user asked for full parse. Attempt parseLevel: 1 with fallback.
+    // 8) User wants full parse => attempt parseLevel: 1 with fallback
     let fullData;
     try {
       fullData = await parseReplay(replayBuffer, {
-        parseLevel: 1, // include all chunks
+        parseLevel: 1,
         debug: false,
       });
     } catch (firstErr) {
-      console.warn('First full-parse attempt failed, trying fallback:', firstErr);
-      // Fallback option: skip chunk errors
+      console.warn('First parseLevel:1 failed, retrying with skipChunkErrors:', firstErr);
       try {
         fullData = await parseReplay(replayBuffer, {
           parseLevel: 1,
@@ -226,14 +224,14 @@ app.post('/upload', upload.single('replayFile'), async (req, res) => {
           failOnChunkError: false,
         });
       } catch (secondErr) {
-        console.warn('Fallback full-parse also failed:', secondErr);
+        console.warn('Fallback parseLevel:1 also failed:', secondErr);
         throw new Error(
-          'Full parse failed. The replay is likely from a newer Fortnite build not yet supported or has malformed chunks.'
+          'Full parse failed. Replay may be from a newer Fortnite version or have corrupted chunks.'
         );
       }
     }
 
-    // 7) Cleanup & return full result
+    // 9) Cleanup & return full result
     await fs.unlink(replayPath).catch(() => {});
     return res.json({
       success: true,
@@ -242,7 +240,7 @@ app.post('/upload', upload.single('replayFile'), async (req, res) => {
       data: fullData,
     });
   } catch (err) {
-    // Ensure we always delete the temporary file
+    // Always clean up
     await fs.unlink(replayPath).catch(() => {});
     console.error('Error parsing replay:', err);
     return res.status(500).json({
@@ -254,14 +252,14 @@ app.post('/upload', upload.single('replayFile'), async (req, res) => {
 
 // ----------------------
 // GET “/health”
-// Simple health‐check endpoint
+// Health-check endpoint
 // ----------------------
 app.get('/health', (req, res) => {
   res.status(200).send('OK');
 });
 
 // ----------------------
-// Start the server
+// Start server
 // ----------------------
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
