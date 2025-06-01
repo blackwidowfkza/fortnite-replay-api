@@ -25,7 +25,7 @@ app.use(express.static('public'));
 // Simple upload form
 // ----------------------
 app.get('/', (req, res) => {
-  res.send(`
+  const html = `
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -133,7 +133,8 @@ app.get('/', (req, res) => {
   </script>
 </body>
 </html>
-  `);
+  `;
+  res.send(html);
 });
 
 // ----------------------
