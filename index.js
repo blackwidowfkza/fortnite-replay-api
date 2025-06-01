@@ -1,4 +1,3 @@
-// index.js
 const express = require('express');
 const multer = require('multer');
 const fs = require('fs').promises;
@@ -21,7 +20,7 @@ const upload = multer({
 app.use(express.static('public'));
 
 // ----------------------
-// GET “/”
+// GET "/"
 // Simple upload form
 // ----------------------
 app.get('/', (req, res) => {
@@ -114,7 +113,6 @@ app.get('/', (req, res) => {
       resultEl.style.display = 'none';
 
       try {
-        // Default: header-only parse. To force full-chunk parse, use `/upload?full=true`.
         const response = await fetch('/upload' + (location.search || ''), {
           method: 'POST',
           body: formData,
@@ -138,10 +136,8 @@ app.get('/', (req, res) => {
 });
 
 // ----------------------
-// POST “/upload”
-//  • Always extract magic+version from first 9 bytes.
-//  • Attempt parseLevel: 0; if it fails, keep minimal header.
-//  • If ?full=true, attempt parseLevel: 1 with fallback.
+// POST "/upload"
+// Handle file upload and parsing
 // ----------------------
 app.post('/upload', upload.single('replayFile'), async (req, res) => {
   if (!req.file) {
@@ -175,13 +171,13 @@ app.post('/upload', upload.single('replayFile'), async (req, res) => {
       note: 'Minimal header extracted from first 9 bytes.',
     };
 
-    // 5) If magic isn’t “ubulk”, return 400 immediately
+    // 5) If magic isn't "ubulk", return 400 immediately
     if (magic !== 'ubulk') {
       await fs.unlink(replayPath).catch(() => {});
       return res.status(400).json({ error: 'Not a valid .replay (magic mismatch).' });
     }
 
-    // 6) Attempt a “light” parse (parseLevel: 0). If it succeeds, replace minimalHeader.
+    // 6) Attempt a "light" parse (parseLevel: 0)
     let headerData = minimalHeader;
     try {
       const result0 = await parseReplay(replayBuffer, {
@@ -191,7 +187,6 @@ app.post('/upload', upload.single('replayFile'), async (req, res) => {
       headerData = result0; // full header metadata
     } catch (lightErr) {
       console.warn('parseLevel:0 (light) failed—using minimal header:', lightErr);
-      // Keep headerData = minimalHeader
     }
 
     // 7) If client did NOT ask for full parse, return header now
@@ -202,8 +197,7 @@ app.post('/upload', upload.single('replayFile'), async (req, res) => {
         success: true,
         type: headerData.numChunks != null ? 'HEADER_FULL' : 'HEADER_MINIMAL',
         header: headerData,
-        message:
-          'Header parsed. To attempt a full/chunk parse, re-upload with “?full=true.”',
+        message: 'Header parsed. To attempt a full/chunk parse, re-upload with "?full=true".',
       });
     }
 
@@ -251,7 +245,7 @@ app.post('/upload', upload.single('replayFile'), async (req, res) => {
 });
 
 // ----------------------
-// GET “/health”
+// GET "/health"
 // Simple health-check
 // ----------------------
 app.get('/health', (req, res) => {
