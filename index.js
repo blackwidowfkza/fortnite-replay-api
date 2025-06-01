@@ -26,113 +26,113 @@ app.use(express.static('public'));
 // ----------------------
 app.get('/', (req, res) => {
   res.send(`
-    <!DOCTYPE html>
-    <html lang="en">
-    <head>
-      <meta charset="UTF-8" />
-      <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-      <title>Fortnite Replay Parser</title>
-      <style>
-        body {
-          font-family: Arial, sans-serif;
-          max-width: 800px;
-          margin: 0 auto;
-          padding: 20px;
-          line-height: 1.6;
-        }
-        h1 {
-          color: #2c3e50;
-          text-align: center;
-        }
-        .upload-form {
-          background: #f9f9f9;
-          padding: 20px;
-          border-radius: 8px;
-          box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-        .form-group {
-          margin-bottom: 15px;
-        }
-        input[type="file"] {
-          padding: 10px;
-          border: 1px solid #ddd;
-          border-radius: 4px;
-          width: 100%;
-        }
-        button {
-          background: #3498db;
-          color: white;
-          border: none;
-          padding: 10px 15px;
-          border-radius: 4px;
-          cursor: pointer;
-          font-size: 16px;
-        }
-        button:hover {
-          background: #2980b9;
-        }
-        .error {
-          color: #e74c3c;
-          margin-top: 10px;
-        }
-        .result {
-          margin-top: 20px;
-          padding: 15px;
-          background: #f0f0f0;
-          border-radius: 4px;
-          white-space: pre-wrap;
-        }
-      </style>
-    </head>
-    <body>
-      <h1>Fortnite Replay Parser</h1>
-      <div class="upload-form">
-        <form id="uploadForm" action="/upload" method="post" enctype="multipart/form-data">
-          <div class="form-group">
-            <label for="replayFile">Select a .replay file:</label>
-            <input type="file" id="replayFile" name="replayFile" accept=".replay" required />
-          </div>
-          <button type="submit">Upload & Parse</button>
-        </form>
-
-        <div id="error" class="error"></div>
-
-        <div id="result" class="result" style="display: none;">
-          <h3>Parsed Replay Data:</h3>
-          <pre id="resultData"></pre>
-        </div>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Fortnite Replay Parser</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 20px;
+      line-height: 1.6;
+    }
+    h1 {
+      color: #2c3e50;
+      text-align: center;
+    }
+    .upload-form {
+      background: #f9f9f9;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .form-group {
+      margin-bottom: 15px;
+    }
+    input[type="file"] {
+      padding: 10px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      width: 100%;
+    }
+    button {
+      background: #3498db;
+      color: white;
+      border: none;
+      padding: 10px 15px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 16px;
+    }
+    button:hover {
+      background: #2980b9;
+    }
+    .error {
+      color: #e74c3c;
+      margin-top: 10px;
+    }
+    .result {
+      margin-top: 20px;
+      padding: 15px;
+      background: #f0f0f0;
+      border-radius: 4px;
+      white-space: pre-wrap;
+    }
+  </style>
+</head>
+<body>
+  <h1>Fortnite Replay Parser</h1>
+  <div class="upload-form">
+    <form id="uploadForm" action="/upload" method="post" enctype="multipart/form-data">
+      <div class="form-group">
+        <label for="replayFile">Select a .replay file:</label>
+        <input type="file" id="replayFile" name="replayFile" accept=".replay" required />
       </div>
+      <button type="submit">Upload & Parse</button>
+    </form>
 
-      <script>
-        document.getElementById('uploadForm').addEventListener('submit', async (e) => {
-          e.preventDefault();
-          const formData = new FormData(e.target);
-          const errorEl = document.getElementById('error');
-          const resultEl = document.getElementById('result');
-          const dataEl = document.getElementById('resultData');
-          errorEl.textContent = '';
-          resultEl.style.display = 'none';
+    <div id="error" class="error"></div>
 
-          try {
-            // Default: header-only parse. To force full-chunk parse, use `/upload?full=true`.
-            const response = await fetch('/upload' + (location.search || ''), {
-              method: 'POST',
-              body: formData,
-            });
-            if (!response.ok) {
-              const body = await response.json();
-              throw new Error(body.error || 'Failed to parse replay');
-            }
-            const json = await response.json();
-            dataEl.textContent = JSON.stringify(json, null, 2);
-            resultEl.style.display = 'block';
-          } catch (err) {
-            errorEl.textContent = err.message;
-          }
+    <div id="result" class="result" style="display: none;">
+      <h3>Parsed Replay Data:</h3>
+      <pre id="resultData"></pre>
+    </div>
+  </div>
+
+  <script>
+    document.getElementById('uploadForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const formData = new FormData(e.target);
+      const errorEl = document.getElementById('error');
+      const resultEl = document.getElementById('result');
+      const dataEl = document.getElementById('resultData');
+      errorEl.textContent = '';
+      resultEl.style.display = 'none';
+
+      try {
+        // Default: header-only parse. To force full-chunk parse, use `/upload?full=true`.
+        const response = await fetch('/upload' + (location.search || ''), {
+          method: 'POST',
+          body: formData,
         });
-      </script>
-    </body>
-    </html>
+        if (!response.ok) {
+          const body = await response.json();
+          throw new Error(body.error || 'Failed to parse replay');
+        }
+        const json = await response.json();
+        dataEl.textContent = JSON.stringify(json, null, 2);
+        resultEl.style.display = 'block';
+      } catch (err) {
+        errorEl.textContent = err.message;
+      }
+    });
+  </script>
+</body>
+</html>
   `);
 });
 
@@ -174,9 +174,8 @@ app.post('/upload', upload.single('replayFile'), async (req, res) => {
       note: 'Minimal header extracted from first 9 bytes.',
     };
 
-    // 5) If magic isn’t “ubulk”, we know immediately it’s not a Fortnite .replay
+    // 5) If magic isn’t “ubulk”, return 400 immediately
     if (magic !== 'ubulk') {
-      // Cleanup
       await fs.unlink(replayPath).catch(() => {});
       return res.status(400).json({ error: 'Not a valid .replay (magic mismatch).' });
     }
@@ -188,13 +187,13 @@ app.post('/upload', upload.single('replayFile'), async (req, res) => {
         parseLevel: 0, // header/metadata only
         debug: false,
       });
-      headerData = result0; // this contains full header metadata
+      headerData = result0; // full header metadata
     } catch (lightErr) {
-      console.warn('parseLevel:0 (light) failed—falling back to minimal header:', lightErr);
+      console.warn('parseLevel:0 (light) failed—using minimal header:', lightErr);
       // Keep headerData = minimalHeader
     }
 
-    // 7) If user did NOT ask for full parse, return headerData now
+    // 7) If client did NOT ask for full parse, return header now
     const wantFullParse = req.query.full === 'true';
     if (!wantFullParse) {
       await fs.unlink(replayPath).catch(() => {});
@@ -203,11 +202,11 @@ app.post('/upload', upload.single('replayFile'), async (req, res) => {
         type: headerData.numChunks != null ? 'HEADER_FULL' : 'HEADER_MINIMAL',
         header: headerData,
         message:
-          'Header parsed. To attempt a full/chunk parse, re-upload with “?full=true”.',
+          'Header parsed. To attempt a full/chunk parse, re-upload with “?full=true.”',
       });
     }
 
-    // 8) User wants full parse => attempt parseLevel: 1 with fallback
+    // 8) Client wants full parse ➔ attempt parseLevel: 1 with fallback
     let fullData;
     try {
       fullData = await parseReplay(replayBuffer, {
@@ -252,7 +251,7 @@ app.post('/upload', upload.single('replayFile'), async (req, res) => {
 
 // ----------------------
 // GET “/health”
-// Health-check endpoint
+// Simple health-check
 // ----------------------
 app.get('/health', (req, res) => {
   res.status(200).send('OK');
