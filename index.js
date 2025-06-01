@@ -1,3 +1,4 @@
+// index.js
 const express = require('express');
 const multer = require('multer');
 const fs = require('fs').promises;
@@ -6,32 +7,30 @@ const parseReplay = require('fortnite-replay-parser');
 
 const app = express();
 
-// Configure file uploads
+// ----------------------
+// Multer configuration
+// ----------------------
 const upload = multer({
   dest: 'uploads/',
   limits: {
-    fileSize: 50 * 1024 * 1024 // 50MB limit
+    fileSize: 50 * 1024 * 1024, // 50 MB
   },
-  fileFilter: (req, file, cb) => {
-    if (path.extname(file.originalname).toLowerCase() === '.replay') {
-      cb(null, true);
-    } else {
-      cb(new Error('Only .replay files are allowed'), false);
-    }
-  }
 });
 
-// Serve static files
+// Serve any static assets (if you have CSS/JS under /public)
 app.use(express.static('public'));
 
-// Homepage with upload form
+// ----------------------
+// GET “/”
+// Serve a simple HTML page with an upload form
+// ----------------------
 app.get('/', (req, res) => {
   res.send(`
     <!DOCTYPE html>
     <html lang="en">
     <head>
-      <meta charset="UTF-8">
-      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <meta charset="UTF-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1.0" />
       <title>Fortnite Replay Parser</title>
       <style>
         body {
@@ -45,7 +44,7 @@ app.get('/', (req, res) => {
           color: #2c3e50;
           text-align: center;
         }
-        .upload-container {
+        .upload-form {
           background: #f9f9f9;
           padding: 20px;
           border-radius: 8px;
@@ -68,55 +67,37 @@ app.get('/', (req, res) => {
           border-radius: 4px;
           cursor: pointer;
           font-size: 16px;
-          transition: background 0.3s;
         }
         button:hover {
           background: #2980b9;
         }
-        .loading {
-          display: none;
-          text-align: center;
-          margin: 15px 0;
-        }
         .error {
           color: #e74c3c;
-          margin: 15px 0;
-          padding: 10px;
-          background: #fdecea;
-          border-radius: 4px;
+          margin-top: 10px;
         }
         .result {
           margin-top: 20px;
           padding: 15px;
           background: #f0f0f0;
           border-radius: 4px;
-          display: none;
-        }
-        pre {
           white-space: pre-wrap;
-          word-wrap: break-word;
         }
       </style>
     </head>
     <body>
       <h1>Fortnite Replay Parser</h1>
-      
-      <div class="upload-container">
-        <form id="uploadForm">
+      <div class="upload-form">
+        <form id="uploadForm" action="/upload" method="post" enctype="multipart/form-data">
           <div class="form-group">
             <label for="replayFile">Select a .replay file:</label>
-            <input type="file" id="replayFile" name="replayFile" accept=".replay" required>
+            <input type="file" id="replayFile" name="replayFile" accept=".replay" required />
           </div>
           <button type="submit">Upload & Parse</button>
         </form>
-        
-        <div class="loading" id="loading">
-          <p>Parsing replay file, please wait...</p>
-        </div>
-        
-        <div class="error" id="error"></div>
-        
-        <div class="result" id="result">
+
+        <div id="error" class="error"></div>
+
+        <div id="result" class="result" style="display: none;">
           <h3>Parsed Replay Data:</h3>
           <pre id="resultData"></pre>
         </div>
@@ -125,43 +106,30 @@ app.get('/', (req, res) => {
       <script>
         document.getElementById('uploadForm').addEventListener('submit', async (e) => {
           e.preventDefault();
-          
-          const fileInput = document.getElementById('replayFile');
-          const loadingElement = document.getElementById('loading');
+          const formData = new FormData(e.target);
           const errorElement = document.getElementById('error');
           const resultElement = document.getElementById('result');
           const resultDataElement = document.getElementById('resultData');
-          
-          // Reset UI
+
           errorElement.textContent = '';
-          errorElement.style.display = 'none';
           resultElement.style.display = 'none';
-          loadingElement.style.display = 'block';
-          
-          const formData = new FormData();
-          formData.append('replayFile', fileInput.files[0]);
-          
+
           try {
             const response = await fetch('/upload', {
               method: 'POST',
-              body: formData
+              body: formData,
             });
-            
-            const data = await response.json();
-            
+
             if (!response.ok) {
-              throw new Error(data.error || 'Failed to parse replay');
+              const body = await response.json();
+              throw new Error(body.error || 'Failed to parse replay');
             }
-            
-            // Display results
-            resultDataElement.textContent = JSON.stringify(data.data, null, 2);
+
+            const data = await response.json();
+            resultDataElement.textContent = JSON.stringify(data, null, 2);
             resultElement.style.display = 'block';
-            
           } catch (err) {
             errorElement.textContent = err.message;
-            errorElement.style.display = 'block';
-          } finally {
-            loadingElement.style.display = 'none';
           }
         });
       </script>
@@ -170,106 +138,129 @@ app.get('/', (req, res) => {
   `);
 });
 
-// Enhanced replay parser with multiple fallback strategies
-async function safeParseReplay(buffer) {
-  const parseAttempts = [
-    { parseLevel: 0 }, // Most basic parsing
-    { 
-      parseLevel: 1,
-      skipChunkErrors: true,
-      failOnChunkError: false,
-      debug: false
-    },
-    {
-      parseLevel: 1,
-      skipChunkErrors: true,
-      failOnChunkError: false,
-      debug: true
-    }
-  ];
-
-  let lastError;
-  
-  for (const config of parseAttempts) {
-    try {
-      console.log(`Attempting parse with config: ${JSON.stringify(config)}`);
-      const result = await parseReplay(buffer, config);
-      return result;
-    } catch (error) {
-      lastError = error;
-      console.warn(`Parse attempt failed: ${error.message}`);
-    }
-  }
-  
-  throw lastError || new Error('All parse attempts failed');
-}
-
-// Handle file upload and parsing
+// ----------------------
+// POST “/upload”
+// Handle file upload, perform a “light” parse (parseLevel: 0), and only do a full parse if requested
+// ----------------------
 app.post('/upload', upload.single('replayFile'), async (req, res) => {
   if (!req.file) {
-    return res.status(400).json({ error: 'No file uploaded' });
+    return res.status(400).json({ error: 'No file uploaded.' });
   }
 
-  const replayPath = req.file.path;
+  const { path: replayPath, originalname } = req.file;
+  const ext = path.extname(originalname).toLowerCase();
+
+  // 1. Immediately reject anything that isn't .replay
+  if (ext !== '.replay') {
+    // cleanup
+    await fs.unlink(replayPath).catch(() => {});
+    return res.status(400).json({ error: 'Only .replay files are allowed.' });
+  }
 
   try {
-    // Validate file
+    // 2. Read the file into a Buffer
     const replayBuffer = await fs.readFile(replayPath);
+
+    // 3. Check minimal size
     if (replayBuffer.length < 100) {
-      throw new Error('File is too small to be a valid replay');
+      throw new Error('File is too small to be a valid replay.');
     }
 
-    // Parse with multiple fallback attempts
-    const parsedData = await safeParseReplay(replayBuffer);
+    // 4. Do a “light” parse (parseLevel: 0 returns header metadata only)
+    let headerData;
+    try {
+      headerData = await parseReplay(replayBuffer, {
+        parseLevel: 0,        // only header & basic info
+        debug: false,
+      });
+    } catch (lightError) {
+      console.warn('Light parse failed:', lightError);
+      // If even light parse fails, bail out
+      throw new Error(
+        'Unable to read header. This file may be corrupted or from an unsupported Fortnite version.'
+      );
+    }
 
-    // Clean up
-    await fs.unlink(replayPath);
+    // 5. By default, return header metadata and skip full parse.
+    //    If you want a deep parse, the client can pass ?full=true
+    const wantFullParse = Boolean(req.query.full);
 
+    if (!wantFullParse) {
+      // Clean up file
+      await fs.unlink(replayPath).catch(() => {});
+      return res.json({
+        success: true,
+        type: 'HEADER_ONLY',
+        header: headerData,
+        message:
+          'Header metadata parsed successfully. To attempt a full/chunk parse, add ?full=true to the request URL.',
+      });
+    }
+
+    // 6. Attempt a full/chunk parse, with fallback options for chunk errors
+    let fullData;
+    try {
+      fullData = await parseReplay(replayBuffer, {
+        parseLevel: 1,
+        debug: false,
+      });
+    } catch (firstError) {
+      console.warn('First full-parse attempt failed, trying fallback:', firstError);
+
+      try {
+        fullData = await parseReplay(replayBuffer, {
+          parseLevel: 1,
+          debug: false,
+          skipChunkErrors: true,
+          failOnChunkError: false,
+        });
+      } catch (secondError) {
+        console.warn('Fallback full-parse also failed:', secondError);
+        throw new Error(
+          'Full parse failed. The replay may be from a newer Fortnite build not yet supported, or it has malformed chunks.'
+        );
+      }
+    }
+
+    // 7. Return full parse result
+    await fs.unlink(replayPath).catch(() => {});
     return res.json({
       success: true,
-      data: parsedData
+      type: 'FULL',
+      header: headerData,
+      data: fullData,
     });
-
   } catch (err) {
-    // Clean up
+    // Ensure cleanup
     await fs.unlink(replayPath).catch(() => {});
-
-    console.error('Replay parsing error:', {
-      message: err.message,
-      stack: err.stack
-    });
-
+    console.error('Error parsing replay:', err);
     return res.status(500).json({
-      error: 'Failed to parse replay file',
-      details: {
-        message: err.message,
-        possibleCauses: [
-          'The replay file might be corrupted',
-          'Unsupported Fortnite version',
-          'Parser limitation with this replay type'
-        ],
-        solutions: [
-          'Try a different replay file',
-          'Check for updates to fortnite-replay-parser',
-          'Contact support with this replay file'
-        ]
-      }
+      error: err.message || 'Failed to parse replay file.',
+      // Only send stack trace in development
+      ...(process.env.NODE_ENV === 'development' ? { details: err.stack } : {}),
     });
   }
 });
 
-// Health check endpoint
+// ----------------------
+// GET “/health”
+// Simple health‐check endpoint
+// ----------------------
 app.get('/health', (req, res) => {
-  res.status(200).json({
-    status: 'healthy',
-    timestamp: new Date().toISOString(),
-    parserVersion: require('fortnite-replay-parser/package.json').version
-  });
+  res.status(200).send('OK');
 });
 
-// Start server
+// ----------------------
+// Start the server
+// ----------------------
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
-  console.log(`Fortnite Replay Parser version: ${require('fortnite-replay-parser/package.json').version}`);
+  // Print parser version so you know which version is installed
+  try {
+    const version = require('fortnite-replay-parser/package.json').version;
+    console.log(`fortnite-replay-parser version: ${version}`);
+  } catch (e) {
+    console.log('Could not read parser version.');
+  }
 });
